@@ -26,7 +26,9 @@ def _extract_docx(path: Path) -> str:
         for row in table.rows:
             for cell in row.cells:
                 parts.append(cell.text)
-    return "\n".join(parts)
+    # Blank lines between paragraphs so downstream paragraph-level analysis
+    # sees the document's real paragraph structure.
+    return "\n\n".join(p for p in parts if p.strip())
 
 
 def _extract_pdf(path: Path) -> str:

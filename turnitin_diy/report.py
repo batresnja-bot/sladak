@@ -8,7 +8,8 @@ import html
 from pathlib import Path
 
 from .ai_detect import DocumentAnalysis, ParagraphScore
-from .compare import Match
+from .compare import Match, summarize_by_source
+from .crosscheck import PairResult
 
 PALETTE = ["#ffd166", "#06d6a0", "#ef476f", "#118ab2", "#8338ec", "#fb5607", "#3a86ff", "#c9184a"]
 
@@ -58,9 +59,11 @@ def render_report(
     if cursor < len(words):
         body_parts.append(html.escape(" ".join(words[cursor:])))
 
+    breakdown = summarize_by_source(len(words), matches)
     legend_items = "".join(
-        f'<li><span class="swatch" style="background:{color}"></span>{html.escape(sid)}</li>'
-        for sid, color in color_by_source.items()
+        f'<li><span class="swatch" style="background:{color_by_source[sid]}"></span>'
+        f"{html.escape(sid)} &mdash; {frac * 100:.1f}%</li>"
+        for sid, frac in breakdown
     )
 
     doc = f"""<!doctype html>
@@ -123,6 +126,7 @@ def combined_report_html(
     similarity_overlap: float | None,
     ai_analysis: DocumentAnalysis,
     home_url: str | None = None,
+    filters_note: str | None = None,
 ) -> str:
     has_similarity = similarity_words is not None and similarity_matches is not None
 
@@ -141,14 +145,20 @@ def combined_report_html(
             cursor = max(cursor, m.target_end)
         if cursor < len(similarity_words):
             body_parts.append(html.escape(" ".join(similarity_words[cursor:])))
+        breakdown = summarize_by_source(len(similarity_words), similarity_matches)
         legend_items = "".join(
-            f'<li><span class="swatch" style="background:{color}"></span>{html.escape(sid)}</li>'
-            for sid, color in color_by_source.items()
+            f'<li><span class="swatch" style="background:{color_by_source[sid]}"></span>'
+            f"{html.escape(sid)} &mdash; {frac * 100:.1f}%</li>"
+            for sid, frac in breakdown
+        )
+        filters_line = (
+            f'<p class="filters">Score filters: {html.escape(filters_note)}</p>' if filters_note else ""
         )
         similarity_section = f"""
 <h2>Similarity (text-overlap) match</h2>
 <div class="score">{similarity_overlap * 100:.1f}%<small>of words fall inside a matched passage,
 across {len(similarity_matches)} passage(s) and {len(source_ids)} source(s)</small></div>
+{filters_line}
 <ul class="legend">{legend_items}</ul>
 <div class="text">{' '.join(body_parts)}</div>
 """
@@ -183,6 +193,7 @@ mark {{ border-radius:2px; padding:0 2px; }}
 .paragraph-meta .components {{ color: #777; }}
 .limitations {{ background: #f7f7f7; border-radius: 8px; padding: 1.25rem 1.5rem; margin-top: 2.5rem; }}
 .limitations h2 {{ margin-top: 0; border: none; }}
+.filters {{ font-size: 0.85rem; color: #666; }}
 </style>
 </head>
 <body>
@@ -203,6 +214,7 @@ def render_combined_report(
     similarity_overlap: float | None,
     ai_analysis: DocumentAnalysis,
     out_path: Path,
+    filters_note: str | None = None,
 ) -> None:
     doc = combined_report_html(
         title=title,
@@ -210,5 +222,56 @@ def render_combined_report(
         similarity_matches=similarity_matches,
         similarity_overlap=similarity_overlap,
         ai_analysis=ai_analysis,
+        filters_note=filters_note,
     )
     out_path.write_text(doc, encoding="utf-8")
+
+
+def _overlap_color(fraction: float) -> str:
+    if fraction >= 0.5:
+        return "#ffd1d1"
+    if fraction >= 0.25:
+        return "#ffe0b3"
+    if fraction >= 0.10:
+        return "#fff3cd"
+    return "#e8f6ef"
+
+
+def crosscheck_report_html(title: str, results: list[PairResult]) -> str:
+    rows = "".join(
+        f"<tr style=\"background:{_overlap_color(r.max_overlap)}\">"
+        f"<td>{html.escape(r.doc_a)}</td><td>{html.escape(r.doc_b)}</td>"
+        f"<td>{r.overlap_a_in_b * 100:.1f}%</td><td>{r.overlap_b_in_a * 100:.1f}%</td></tr>"
+        for r in results
+    )
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Cross-check: {html.escape(title)}</title>
+<style>
+body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 2rem auto;
+        padding: 0 1rem; line-height: 1.6; color: #1a1a1a; }}
+table {{ border-collapse: collapse; width: 100%; margin-top: 1.5rem; }}
+th, td {{ text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #ddd; }}
+th {{ font-size: 0.85rem; color: #555; }}
+p.hint {{ color: #666; font-size: 0.9rem; }}
+</style>
+</head>
+<body>
+<h1>Cross-check: {html.escape(title)}</h1>
+<p class="hint">Every document compared against every other, both directions
+(collusion-style check). Pairs sorted by highest overlap. Run
+<code>turnitin-diy check A --sources folder-with-B</code> on a suspicious pair
+to see the exact matched passages.</p>
+<table>
+<tr><th>Document A</th><th>Document B</th><th>A matched in B</th><th>B matched in A</th></tr>
+{rows}
+</table>
+</body>
+</html>
+"""
+
+
+def render_crosscheck_report(title: str, results: list[PairResult], out_path: Path) -> None:
+    out_path.write_text(crosscheck_report_html(title, results), encoding="utf-8")

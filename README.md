@@ -14,17 +14,21 @@ turnitin_diy/
 ├── extract.py     text extraction (.docx / .pdf / .txt / .md)
 ├── shingle.py      k-word shingling + winnowing (fingerprinting primitive)
 ├── compare.py      similarity module: fingerprint index + match-finding
+├── filters.py      score filters: exclude quotes / exclude bibliography
+├── corpus.py       persistent SQLite corpus — your own "Turnitin archive"
+├── crosscheck.py   all-pairs folder comparison (collusion check)
 ├── ai_detect.py     AI-writing-pattern module: per-paragraph heuristic scoring
-├── report.py       HTML rendering (similarity-only, or combined)
+├── report.py       HTML rendering (similarity, combined, cross-check)
 ├── websearch.py    optional live-web spot-check (official search API only)
 ├── webapp.py        no-login web UI (Flask) built on the same modules
 ├── templates/upload.html
-└── cli.py          `check` (similarity only) and `report` (combined) commands
+└── cli.py          check / report / crosscheck / corpus commands
 ```
 
 `compare.py` and `ai_detect.py` don't depend on each other — `report.py` just
 renders whichever results are available side by side. `cli.py report` runs
-`ai_detect.py` unconditionally and `compare.py` only if you pass `--sources`.
+`ai_detect.py` unconditionally and `compare.py` only if you pass `--sources`
+and/or `--corpus`.
 
 ## How Turnitin actually works (and where this tool differs)
 
@@ -126,22 +130,64 @@ turnitin-diy check my_paper.docx --sources ./my_source_pdfs/ --out report.html
 - `--sources` — a folder of reference files to compare against (same file types).
 - `--out` — where to write the HTML report (default `report.html`).
 
-Tuning flags (both commands):
+### Your own repository (`corpus`)
+
+Turnitin's structural advantage is an archive that grows with every
+submission. `corpus` gives you the same concept at personal scale — a SQLite
+database you keep adding documents to (drafts, past papers, source PDFs), so
+every future check runs against everything you've accumulated:
+
+```bash
+turnitin-diy corpus add old_draft.docx source1.pdf --db my_corpus.db
+turnitin-diy corpus list --db my_corpus.db
+turnitin-diy check new_paper.docx --corpus my_corpus.db
+turnitin-diy report new_paper.docx --corpus my_corpus.db --sources ./more_pdfs/
+```
+
+`--sources` and `--corpus` can be combined; matches from the corpus are
+labeled `corpus #id: name` in the report.
+
+### Collusion check (`crosscheck`)
+
+Compare every document in a folder against every other, both directions —
+how institutions catch copying within a batch of submissions:
+
+```bash
+turnitin-diy crosscheck ./submissions/ --out crosscheck.html
+```
+
+Prints the highest-overlap pairs and writes a table report. To see the exact
+matched passages for a suspicious pair, run a normal `check` on it.
+
+### Score filters (like Turnitin's)
+
+- `--exclude-quotes` — matched text inside quotation marks (straight or
+  curly) doesn't count toward the score.
+- `--exclude-bibliography` — everything after a References/Bibliography/
+  Works Cited heading doesn't count.
+
+Both work on `check` and `report`, and as checkboxes in the web UI. The
+report notes which filters were active. An unclosed quotation mark is
+ignored rather than silently excluding the rest of the document.
+
+Tuning flags (all matching commands):
 
 - `--k` (default 8) — shingle length in words. Smaller catches shorter
   matches but is noisier; larger is stricter.
 - `--window` (default 4) — winnowing window; controls fingerprint density.
 - `--min-run` (default 8) — minimum matched run length (in words) worth
   reporting, to filter out coincidental short phrase matches.
-- `--web` — also spot-check your longest sentences against the live web.
-  Requires `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ENGINE_ID` env vars (see
-  [Google's Programmable Search Engine docs](https://developers.google.com/custom-search/v1/overview)).
+- `--web` (`check` only) — also spot-check your longest sentences against
+  the live web. Requires `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ENGINE_ID` env
+  vars (see [Google's Programmable Search Engine docs](https://developers.google.com/custom-search/v1/overview)).
 
 ## Web UI
 
-A no-login upload page built on the same modules: one file input for your
-document, one optional multi-file input for reference sources, and it
-returns the same combined report as `turnitin-diy report`.
+A no-login upload page built on the same modules: upload a file **or paste
+text**, optionally attach reference sources, tick the exclude-quotes /
+exclude-bibliography filters, and it returns the same combined report as
+`turnitin-diy report` — overall score, per-source percentage breakdown,
+highlighted matches, and the AI-writing-pattern analysis.
 
 ```bash
 pip install -r requirements-web.txt

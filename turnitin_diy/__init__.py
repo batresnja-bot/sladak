@@ -6,4 +6,4 @@ winnowing fingerprint matching. See README.md for how this compares to real
 Turnitin and what it can/can't do.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

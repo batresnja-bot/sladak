@@ -1,6 +1,6 @@
 [project]
 name = "turnitin-diy"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local, open-source text-similarity checker using the same fingerprinting technique Turnitin is built on."
 requires-python = ">=3.9"
 dependencies = [

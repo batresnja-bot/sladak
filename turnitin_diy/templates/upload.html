@@ -10,6 +10,10 @@ h1 { margin-bottom: 0.25rem; }
 form { border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-top: 2rem; }
 label { display: block; font-weight: 600; margin-top: 1rem; }
 input[type=file] { display: block; margin-top: 0.4rem; }
+textarea { display: block; margin-top: 0.4rem; width: 100%; box-sizing: border-box; font: inherit; padding: 0.5rem; border: 1px solid #ccc; border-radius: 6px; }
+.checks { margin-top: 0.4rem; }
+.check { font-weight: 400; margin-top: 0.2rem; }
+.check input { margin-right: 0.4rem; }
 .hint { color: #777; font-size: 0.85rem; margin-top: 0.2rem; }
 button { margin-top: 1.5rem; padding: 0.6rem 1.4rem; font-size: 1rem; border-radius: 6px; border: none; background: #1a1a1a; color: white; cursor: pointer; }
 button:hover { background: #333; }
@@ -22,12 +26,22 @@ button:hover { background: #333; }
 
 <form action="/analyze" method="post" enctype="multipart/form-data">
   <label for="document">Document to check</label>
-  <input type="file" id="document" name="document" accept=".docx,.pdf,.txt,.md" required>
+  <input type="file" id="document" name="document" accept=".docx,.pdf,.txt,.md">
   <div class="hint">.docx, .pdf, .txt, or .md &mdash; up to {{ max_mb }} MB</div>
+
+  <label for="text">&hellip;or paste text instead</label>
+  <textarea id="text" name="text" rows="6" placeholder="Paste your text here if you don't have a file"></textarea>
+  <div class="hint">Used only when no file is chosen above.</div>
 
   <label for="sources">Reference sources (optional)</label>
   <input type="file" id="sources" name="sources" accept=".docx,.pdf,.txt,.md" multiple>
   <div class="hint">Files to compare against for text overlap &mdash; your cited sources, earlier drafts, etc. Leave empty to skip the similarity check and only run the writing-pattern analysis.</div>
+
+  <label>Score filters</label>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="exclude_quotes" value="1"> Exclude quoted material</label>
+    <label class="check"><input type="checkbox" name="exclude_bibliography" value="1"> Exclude bibliography/references</label>
+  </div>
 
   <button type="submit">Generate report</button>
 </form>

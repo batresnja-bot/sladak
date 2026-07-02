@@ -24,6 +24,7 @@ from flask import Flask, render_template, request
 from .ai_detect import analyze_document
 from .compare import build_source, find_matches
 from .extract import SUPPORTED_SUFFIXES, extract_text
+from .filters import describe_filters
 from .report import combined_report_html
 
 MAX_CONTENT_LENGTH = 20 * 1024 * 1024  # 20 MB per request
@@ -58,23 +59,34 @@ def create_app() -> Flask:
 
 def _analyze():
     document = request.files.get("document")
-    if document is None or not document.filename:
-        return "No document uploaded.", 400
+    pasted_text = (request.form.get("text") or "").strip()
+    exclude_quotes = bool(request.form.get("exclude_quotes"))
+    exclude_bibliography = bool(request.form.get("exclude_bibliography"))
 
-    suffix = Path(document.filename).suffix.lower()
-    if suffix not in SUPPORTED_SUFFIXES:
-        return f"Unsupported file type {suffix!r}. Use one of {sorted(SUPPORTED_SUFFIXES)}.", 400
+    has_file = document is not None and document.filename
+    if not has_file and not pasted_text:
+        return "No document uploaded and no text pasted.", 400
+
+    if has_file:
+        suffix = Path(document.filename).suffix.lower()
+        if suffix not in SUPPORTED_SUFFIXES:
+            return f"Unsupported file type {suffix!r}. Use one of {sorted(SUPPORTED_SUFFIXES)}.", 400
 
     source_files = [f for f in request.files.getlist("sources") if f.filename]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        doc_path = tmp_path / Path(document.filename).name
-        document.save(doc_path)
-        try:
-            target_text = extract_text(doc_path)
-        except Exception as exc:  # noqa: BLE001 - surface extraction failures to the user
-            return f"Could not read that file: {exc}", 400
+        if has_file:
+            title = document.filename
+            doc_path = tmp_path / Path(document.filename).name
+            document.save(doc_path)
+            try:
+                target_text = extract_text(doc_path)
+            except Exception as exc:  # noqa: BLE001 - surface extraction failures to the user
+                return f"Could not read that file: {exc}", 400
+        else:
+            title = "pasted text"
+            target_text = pasted_text
 
         similarity_words = similarity_matches = None
         similarity_overlap = None
@@ -91,17 +103,23 @@ def _analyze():
                 except Exception:  # noqa: BLE001 - skip unreadable source files
                     continue
             if sources:
-                similarity_words, similarity_matches, similarity_overlap = find_matches(target_text, sources)
+                similarity_words, similarity_matches, similarity_overlap = find_matches(
+                    target_text,
+                    sources,
+                    exclude_quotes=exclude_quotes,
+                    exclude_bibliography=exclude_bibliography,
+                )
 
         ai_analysis = analyze_document(target_text)
 
     return combined_report_html(
-        title=document.filename,
+        title=title,
         similarity_words=similarity_words,
         similarity_matches=similarity_matches,
         similarity_overlap=similarity_overlap,
         ai_analysis=ai_analysis,
         home_url="/",
+        filters_note=describe_filters(exclude_quotes, exclude_bibliography),
     )
 
 

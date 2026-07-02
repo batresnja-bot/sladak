@@ -24,6 +24,17 @@ def tokenize(text: str) -> list[str]:
     return WORD_RE.findall(text.lower())
 
 
+def tokenize_with_spans(text: str) -> tuple[list[str], list[tuple[int, int]]]:
+    """Same tokens as tokenize(), plus each token's (start, end) char offsets,
+    so word indices can be mapped back to positions in the original text."""
+    words: list[str] = []
+    spans: list[tuple[int, int]] = []
+    for m in WORD_RE.finditer(text.lower()):
+        words.append(m.group())
+        spans.append((m.start(), m.end()))
+    return words, spans
+
+
 @dataclass(frozen=True)
 class Shingle:
     hash: int
