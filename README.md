@@ -17,6 +17,8 @@ turnitin_diy/
 ├── ai_detect.py     AI-writing-pattern module: per-paragraph heuristic scoring
 ├── report.py       HTML rendering (similarity-only, or combined)
 ├── websearch.py    optional live-web spot-check (official search API only)
+├── webapp.py        no-login web UI (Flask) built on the same modules
+├── templates/upload.html
 └── cli.py          `check` (similarity only) and `report` (combined) commands
 ```
 
@@ -134,6 +136,51 @@ Tuning flags (both commands):
 - `--web` — also spot-check your longest sentences against the live web.
   Requires `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ENGINE_ID` env vars (see
   [Google's Programmable Search Engine docs](https://developers.google.com/custom-search/v1/overview)).
+
+## Web UI
+
+A no-login upload page built on the same modules: one file input for your
+document, one optional multi-file input for reference sources, and it
+returns the same combined report as `turnitin-diy report`.
+
+```bash
+pip install -r requirements-web.txt
+python -m turnitin_diy.webapp        # http://127.0.0.1:5000
+```
+
+What it does and doesn't do, since "no login" + "public" is a real trade-off:
+
+- **Nothing is stored.** Each upload is written to a `tempfile.TemporaryDirectory()`
+  that's deleted the instant the report is generated. No database, no
+  logging of file contents, no session/account tying uploads together.
+- **Request size is capped** at 20 MB (`MAX_CONTENT_LENGTH` in `webapp.py`).
+- **Rate-limited per IP** (5 requests/minute, 20/hour) if `flask-limiter` is
+  installed — an anonymous public endpoint that does CPU work needs this or
+  it's a free DoS target.
+- **The live-web spot-check is not exposed here.** It needs a paid Google API
+  key; a public unauthenticated endpoint is the wrong place to spend it.
+
+### Deploying it publicly
+
+This code doesn't run anywhere on its own — it's yours to deploy to whatever
+you host things on (a VPS, Fly.io, Render, Railway, etc.). A `Dockerfile` is
+included:
+
+```bash
+docker build -t turnitin-diy .
+docker run -p 8000:8000 turnitin-diy
+```
+
+Two things worth deciding *before* you put a public URL in front of this:
+
+1. **The default rate limiter is in-process memory.** Fine for a single
+   container; if you run multiple instances behind a load balancer, point
+   `flask-limiter` at Redis (see its docs) or the limit won't be shared
+   across instances.
+2. **You are the one accepting other people's documents with no login.**
+   That's fine for personal use or a small trusted group; for anything wider,
+   think about whether you want stronger abuse controls (CAPTCHA, lower rate
+   limits, a max file count) before the URL is public.
 
 ## Development
 

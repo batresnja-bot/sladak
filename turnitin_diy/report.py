@@ -116,14 +116,14 @@ def _render_ai_paragraphs(paragraphs: list[ParagraphScore]) -> str:
     return "\n".join(blocks)
 
 
-def render_combined_report(
+def combined_report_html(
     title: str,
     similarity_words: list[str] | None,
     similarity_matches: list[Match] | None,
     similarity_overlap: float | None,
     ai_analysis: DocumentAnalysis,
-    out_path: Path,
-) -> None:
+    home_url: str | None = None,
+) -> str:
     has_similarity = similarity_words is not None and similarity_matches is not None
 
     similarity_section = ""
@@ -160,7 +160,9 @@ across {len(similarity_matches)} passage(s) and {len(source_ids)} source(s)</sma
 <div class="paragraphs">{_render_ai_paragraphs(ai_analysis.paragraphs)}</div>
 """
 
-    doc = f"""<!doctype html>
+    back_link = f'<p><a href="{html.escape(home_url)}">&larr; check another document</a></p>' if home_url else ""
+
+    return f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -184,6 +186,7 @@ mark {{ border-radius:2px; padding:0 2px; }}
 </style>
 </head>
 <body>
+{back_link}
 <h1>{html.escape(title)}</h1>
 {similarity_section}
 {ai_section}
@@ -191,4 +194,21 @@ mark {{ border-radius:2px; padding:0 2px; }}
 </body>
 </html>
 """
+
+
+def render_combined_report(
+    title: str,
+    similarity_words: list[str] | None,
+    similarity_matches: list[Match] | None,
+    similarity_overlap: float | None,
+    ai_analysis: DocumentAnalysis,
+    out_path: Path,
+) -> None:
+    doc = combined_report_html(
+        title=title,
+        similarity_words=similarity_words,
+        similarity_matches=similarity_matches,
+        similarity_overlap=similarity_overlap,
+        ai_analysis=ai_analysis,
+    )
     out_path.write_text(doc, encoding="utf-8")
