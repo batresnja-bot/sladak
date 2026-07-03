@@ -27,6 +27,7 @@ def crosscheck_folder(
     k: int = 8,
     window: int = 4,
     min_run: int = 8,
+    bridge_gap: int = 6,
 ) -> list[PairResult]:
     """Compare every document in `folder` against every other, both
     directions, sorted by highest overlap first."""
@@ -44,8 +45,12 @@ def crosscheck_folder(
     results: list[PairResult] = []
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            _, _, a_in_b = find_matches(texts[a], [sources[b]], k=k, window=window, min_run=min_run)
-            _, _, b_in_a = find_matches(texts[b], [sources[a]], k=k, window=window, min_run=min_run)
+            a_in_b = find_matches(
+                texts[a], [sources[b]], k=k, window=window, min_run=min_run, bridge_gap=bridge_gap
+            ).overlap
+            b_in_a = find_matches(
+                texts[b], [sources[a]], k=k, window=window, min_run=min_run, bridge_gap=bridge_gap
+            ).overlap
             results.append(PairResult(doc_a=a, doc_b=b, overlap_a_in_b=a_in_b, overlap_b_in_a=b_in_a))
 
     results.sort(key=lambda r: -r.max_overlap)

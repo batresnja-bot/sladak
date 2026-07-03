@@ -1,16 +1,18 @@
-# turnitin-diy
+# Sladak
 
-A local, open-source similarity + AI-writing-pattern checker, modeled on how
+An open-source similarity + AI-writing-pattern checker, modeled on how
 Turnitin's two features actually work: (1) text-overlap similarity matching
 against a set of sources, and (2) an AI-writing-likelihood signal. Use it to
-spot-check your own writing *before* you submit it anywhere.
+spot-check your own writing *before* you submit it anywhere. Run it locally,
+or deploy your own public copy with one click (see
+[Deploying it publicly](#deploying-it-publicly)).
 
 ## Architecture
 
 Two independent modules feed one combined report:
 
 ```
-turnitin_diy/
+sladak/
 ├── extract.py     text extraction (.docx / .pdf / .txt / .md)
 ├── shingle.py      k-word shingling + winnowing (fingerprinting primitive)
 ├── compare.py      similarity module: fingerprint index + match-finding
@@ -36,7 +38,7 @@ Turnitin's own documentation describes the pipeline in general terms:
 
 1. **Extract text** from the submitted file (DOCX, PDF, etc.).
 2. **Fingerprint it**: break the text into overlapping word sequences and
-   hash them, the same idea as `turnitin_diy/shingle.py` here.
+   hash them, the same idea as `sladak/shingle.py` here.
 3. **Compare fingerprints against three indexes**:
    - the current and archived public web,
    - a private repository of papers previously submitted by students at
@@ -66,6 +68,20 @@ report does, using the technique described in Schleimer, Wilkerson & Aiken's
 ["Winnowing: Local Algorithms for Document Fingerprinting"](https://theory.stanford.edu/~aiken/publications/papers/sigmod03.pdf)
 (SIGMOD 2003) — the paper the whole plagiarism-detection industry, including
 MOSS, traces back to.
+
+Three report behaviors are also modeled directly on Turnitin's:
+
+- **Block matching (gap bridging).** Two matches from the same source
+  separated by only a few unmatched words — a copied passage with a small
+  in-place edit — merge into one continuous match block, and the edited
+  words count toward it, the way Turnitin highlights a lightly edited copy
+  as one block. Tune with `--bridge` (default 6 words; 0 disables).
+- **Original-text highlighting.** Matches are highlighted in your document's
+  actual text — punctuation, capitalization, and paragraph breaks intact —
+  with a numbered color badge per source, like Turnitin's document viewer.
+- **Similarity bands.** The overall score is shown with Turnitin's five
+  color bands: blue (no matches), green (up to 24%), yellow (25–49%),
+  orange (50–74%), red (75–100%).
 
 There's also an optional, opt-in web-spot-check mode (`--web`) that takes
 your longest sentences and searches for them verbatim via the official
@@ -114,7 +130,7 @@ Combined report (similarity + AI-writing-pattern), the closest analog to a
 full Turnitin submission report:
 
 ```bash
-turnitin-diy report my_paper.docx --sources ./my_source_pdfs/ --out report.html
+sladak report my_paper.docx --sources ./my_source_pdfs/ --out report.html
 ```
 
 `--sources` is optional here — omit it to get the AI-writing-pattern
@@ -123,7 +139,7 @@ analysis alone.
 Similarity-only report:
 
 ```bash
-turnitin-diy check my_paper.docx --sources ./my_source_pdfs/ --out report.html
+sladak check my_paper.docx --sources ./my_source_pdfs/ --out report.html
 ```
 
 - `my_paper.docx` — the document you want to check (`.docx`, `.pdf`, `.txt`, `.md`).
@@ -138,10 +154,10 @@ database you keep adding documents to (drafts, past papers, source PDFs), so
 every future check runs against everything you've accumulated:
 
 ```bash
-turnitin-diy corpus add old_draft.docx source1.pdf --db my_corpus.db
-turnitin-diy corpus list --db my_corpus.db
-turnitin-diy check new_paper.docx --corpus my_corpus.db
-turnitin-diy report new_paper.docx --corpus my_corpus.db --sources ./more_pdfs/
+sladak corpus add old_draft.docx source1.pdf --db my_corpus.db
+sladak corpus list --db my_corpus.db
+sladak check new_paper.docx --corpus my_corpus.db
+sladak report new_paper.docx --corpus my_corpus.db --sources ./more_pdfs/
 ```
 
 `--sources` and `--corpus` can be combined; matches from the corpus are
@@ -153,7 +169,7 @@ Compare every document in a folder against every other, both directions —
 how institutions catch copying within a batch of submissions:
 
 ```bash
-turnitin-diy crosscheck ./submissions/ --out crosscheck.html
+sladak crosscheck ./submissions/ --out crosscheck.html
 ```
 
 Prints the highest-overlap pairs and writes a table report. To see the exact
@@ -177,6 +193,8 @@ Tuning flags (all matching commands):
 - `--window` (default 4) — winnowing window; controls fingerprint density.
 - `--min-run` (default 8) — minimum matched run length (in words) worth
   reporting, to filter out coincidental short phrase matches.
+- `--bridge` (default 6) — join matches from the same source separated by up
+  to this many words into one block, like Turnitin; 0 disables.
 - `--web` (`check` only) — also spot-check your longest sentences against
   the live web. Requires `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ENGINE_ID` env
   vars (see [Google's Programmable Search Engine docs](https://developers.google.com/custom-search/v1/overview)).
@@ -186,12 +204,12 @@ Tuning flags (all matching commands):
 A no-login upload page built on the same modules: upload a file **or paste
 text**, optionally attach reference sources, tick the exclude-quotes /
 exclude-bibliography filters, and it returns the same combined report as
-`turnitin-diy report` — overall score, per-source percentage breakdown,
+`sladak report` — overall score, per-source percentage breakdown,
 highlighted matches, and the AI-writing-pattern analysis.
 
 ```bash
 pip install -r requirements-web.txt
-python -m turnitin_diy.webapp        # http://127.0.0.1:5000
+python -m sladak.webapp        # http://127.0.0.1:5000
 ```
 
 What it does and doesn't do, since "no login" + "public" is a real trade-off:
@@ -208,13 +226,24 @@ What it does and doesn't do, since "no login" + "public" is a real trade-off:
 
 ### Deploying it publicly
 
-This code doesn't run anywhere on its own — it's yours to deploy to whatever
-you host things on (a VPS, Fly.io, Render, Railway, etc.). A `Dockerfile` is
-included:
+The fastest way to a public URL is Render's free tier — the repo ships a
+`render.yaml` blueprint, so it's one click plus a free account:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/batresnja-bot/sladak)
+
+1. Click the button (create a free [Render](https://render.com) account if
+   asked — GitHub login works).
+2. Approve the blueprint. Render builds the included `Dockerfile` and gives
+   you a public `https://sladak-….onrender.com` URL.
+3. Free-tier note: the instance sleeps when idle, so the first request after
+   a quiet period takes ~30–60 seconds to wake up.
+
+Or deploy the `Dockerfile` yourself to whatever you host things on (a VPS,
+Fly.io, Railway, etc.):
 
 ```bash
-docker build -t turnitin-diy .
-docker run -p 8000:8000 turnitin-diy
+docker build -t sladak .
+docker run -p 8000:8000 sladak
 ```
 
 Two things worth deciding *before* you put a public URL in front of this:

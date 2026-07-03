@@ -1,5 +1,5 @@
-from turnitin_diy.compare import build_source, find_matches
-from turnitin_diy.filters import bibliography_range, quote_ranges
+from sladak.compare import build_source, find_matches
+from sladak.filters import bibliography_range, quote_ranges
 
 COPIED = (
     "Climate policy requires balancing near term economic costs against "
@@ -34,20 +34,20 @@ def test_exclude_quotes_removes_quoted_match_from_score():
     source = build_source("src.txt", COPIED + " plus unique filler padding words here")
     target = f'Intro sentence for context. "{COPIED}" Outro sentence for context.'
 
-    _, matches_off, overlap_off = find_matches(target, [source], min_run=6)
-    _, matches_on, overlap_on = find_matches(target, [source], min_run=6, exclude_quotes=True)
+    off = find_matches(target, [source], min_run=6)
+    on = find_matches(target, [source], min_run=6, exclude_quotes=True)
 
-    assert matches_off and overlap_off > 0
-    assert not matches_on
-    assert overlap_on == 0
+    assert off.matches and off.overlap > 0
+    assert not on.matches
+    assert on.overlap == 0
 
 
 def test_exclude_bibliography_removes_references_match():
     source = build_source("src.txt", COPIED + " plus unique filler padding words here")
     target = "Original body text that matches nothing at all.\nReferences\n" + COPIED
 
-    _, matches_off, _ = find_matches(target, [source], min_run=6)
-    _, matches_on, _ = find_matches(target, [source], min_run=6, exclude_bibliography=True)
+    off = find_matches(target, [source], min_run=6)
+    on = find_matches(target, [source], min_run=6, exclude_bibliography=True)
 
-    assert matches_off
-    assert not matches_on
+    assert off.matches
+    assert not on.matches

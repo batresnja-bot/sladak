@@ -15,6 +15,13 @@ def _add_matching_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--k", type=int, default=8, help="Shingle length in words (default: 8)")
     p.add_argument("--window", type=int, default=4, help="Winnowing window size (default: 4)")
     p.add_argument("--min-run", type=int, default=8, help="Minimum matched run in words to report (default: 8)")
+    p.add_argument(
+        "--bridge",
+        type=int,
+        default=6,
+        help="Bridge matches from the same source separated by up to this many words, like Turnitin's "
+        "block matching (default: 6; 0 disables)",
+    )
 
 
 def _add_filter_args(p: argparse.ArgumentParser) -> None:
@@ -25,7 +32,7 @@ def _add_filter_args(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="turnitin-diy", description="A local text-similarity checker.")
+    parser = argparse.ArgumentParser(prog="sladak", description="A local text-similarity checker.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     check = sub.add_parser("check", help="Compare a document against reference sources and/or your corpus.")
@@ -105,22 +112,26 @@ def run_check(args: argparse.Namespace) -> None:
     if not sources:
         raise SystemExit("No readable reference documents found.")
 
-    words, matches, overlap = find_matches(
+    result = find_matches(
         target_text,
         sources,
         k=args.k,
         window=args.window,
         min_run=args.min_run,
+        bridge_gap=args.bridge,
         exclude_quotes=args.exclude_quotes,
         exclude_bibliography=args.exclude_bibliography,
     )
 
-    render_report(title=args.document.name, words=words, matches=matches, overlap=overlap, out_path=args.out)
+    render_report(title=args.document.name, result=result, out_path=args.out)
 
     filters_note = describe_filters(args.exclude_quotes, args.exclude_bibliography)
     if filters_note:
         print(f"Score filters: {filters_note}")
-    print(f"{overlap * 100:.1f}% word overlap across {len(matches)} matched passage(s) and {len(sources)} source(s).")
+    print(
+        f"{result.overlap * 100:.1f}% word overlap across "
+        f"{len(result.matches)} matched passage(s) and {len(sources)} source(s)."
+    )
     print(f"Report written to {args.out.resolve()}")
 
     if args.web:
@@ -139,18 +150,18 @@ def run_check(args: argparse.Namespace) -> None:
 def run_report(args: argparse.Namespace) -> None:
     target_text = extract_text(args.document)
 
-    similarity_words = similarity_matches = None
-    similarity_overlap = None
+    similarity = None
     if args.sources is not None or args.corpus is not None:
         sources = _collect_sources(args)
         if not sources:
             raise SystemExit("No readable reference documents found.")
-        similarity_words, similarity_matches, similarity_overlap = find_matches(
+        similarity = find_matches(
             target_text,
             sources,
             k=args.k,
             window=args.window,
             min_run=args.min_run,
+            bridge_gap=args.bridge,
             exclude_quotes=args.exclude_quotes,
             exclude_bibliography=args.exclude_bibliography,
         )
@@ -159,16 +170,14 @@ def run_report(args: argparse.Namespace) -> None:
 
     render_combined_report(
         title=args.document.name,
-        similarity_words=similarity_words,
-        similarity_matches=similarity_matches,
-        similarity_overlap=similarity_overlap,
+        similarity=similarity,
         ai_analysis=ai_analysis,
         out_path=args.out,
         filters_note=describe_filters(args.exclude_quotes, args.exclude_bibliography),
     )
 
-    if similarity_overlap is not None:
-        print(f"Similarity: {similarity_overlap * 100:.1f}% word overlap across {len(similarity_matches)} passage(s).")
+    if similarity is not None:
+        print(f"Similarity: {similarity.overlap * 100:.1f}% word overlap across {len(similarity.matches)} passage(s).")
     print(f"Writing-pattern score: {ai_analysis.overall_score * 100:.0f}/100 (see report for per-paragraph detail).")
     print(f"Report written to {args.out.resolve()}")
 
@@ -176,7 +185,9 @@ def run_report(args: argparse.Namespace) -> None:
 def run_crosscheck(args: argparse.Namespace) -> None:
     from .crosscheck import crosscheck_folder
 
-    results = crosscheck_folder(args.folder, k=args.k, window=args.window, min_run=args.min_run)
+    results = crosscheck_folder(
+        args.folder, k=args.k, window=args.window, min_run=args.min_run, bridge_gap=args.bridge
+    )
     if not results:
         raise SystemExit(f"Need at least two readable documents in {args.folder} to cross-check.")
 

@@ -1,6 +1,6 @@
 [project]
-name = "turnitin-diy"
-version = "0.2.0"
+name = "sladak"
+version = "0.3.0"
 description = "A local, open-source text-similarity checker using the same fingerprinting technique Turnitin is built on."
 requires-python = ">=3.9"
 dependencies = [
@@ -14,14 +14,14 @@ dev = ["pytest>=8.0.0"]
 web = ["flask>=3.0.0", "flask-limiter>=3.5.0"]
 
 [project.scripts]
-turnitin-diy = "turnitin_diy.cli:main"
+sladak = "sladak.cli:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["turnitin_diy*"]
+include = ["sladak*"]
 
 [tool.setuptools.package-data]
-turnitin_diy = ["templates/*.html"]
+sladak = ["templates/*.html"]

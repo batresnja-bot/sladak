@@ -1,4 +1,4 @@
-"""A minimal, no-login web front end for turnitin-diy.
+"""A minimal, no-login web front end for sladak.
 
 Deployment model is "run this yourself," not "we run it for you": there is
 no authentication, so if you put this on a public URL, anyone can submit a
@@ -88,8 +88,7 @@ def _analyze():
             title = "pasted text"
             target_text = pasted_text
 
-        similarity_words = similarity_matches = None
-        similarity_overlap = None
+        similarity = None
         if source_files:
             sources = []
             for i, f in enumerate(source_files):
@@ -103,7 +102,7 @@ def _analyze():
                 except Exception:  # noqa: BLE001 - skip unreadable source files
                     continue
             if sources:
-                similarity_words, similarity_matches, similarity_overlap = find_matches(
+                similarity = find_matches(
                     target_text,
                     sources,
                     exclude_quotes=exclude_quotes,
@@ -114,9 +113,7 @@ def _analyze():
 
     return combined_report_html(
         title=title,
-        similarity_words=similarity_words,
-        similarity_matches=similarity_matches,
-        similarity_overlap=similarity_overlap,
+        similarity=similarity,
         ai_analysis=ai_analysis,
         home_url="/",
         filters_note=describe_filters(exclude_quotes, exclude_bibliography),

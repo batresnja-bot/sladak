@@ -1,5 +1,5 @@
-from turnitin_diy.compare import summarize_by_source
-from turnitin_diy.crosscheck import crosscheck_folder
+from sladak.compare import summarize_by_source
+from sladak.crosscheck import crosscheck_folder
 
 SHARED = (
     "Climate policy requires balancing near term economic costs against "
@@ -25,7 +25,7 @@ def test_crosscheck_ranks_colluding_pair_first(tmp_path):
 
 
 def test_summarize_by_source_orders_and_bounds_fractions():
-    from turnitin_diy.compare import Match
+    from sladak.compare import Match
 
     matches = [
         Match(source_id="big.txt", target_start=0, target_end=10, source_start=0, source_end=10),

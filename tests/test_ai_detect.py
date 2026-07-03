@@ -1,4 +1,4 @@
-from turnitin_diy.ai_detect import analyze_document, score_paragraph
+from sladak.ai_detect import analyze_document, score_paragraph
 
 STOCK_PHRASE_HEAVY = (
     "Moreover, it is important to note that climate policy plays a crucial role. "
