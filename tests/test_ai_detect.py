@@ -60,3 +60,43 @@ def test_empty_text_returns_no_paragraphs():
     assert analysis.paragraphs == []
     assert analysis.overall_score == 0.0
     assert analysis.scored_words == 0
+
+
+def test_split_sentences_does_not_break_on_abbreviations():
+    from sladak.ai_detect import split_sentences
+
+    text = (
+        "The 2026 Iran-Israel-U.S. war disrupted trade. "
+        "Oil prices rose sharply, e.g. Brent crude. "
+        "Analysts at the U.S. Federal Reserve responded."
+    )
+    sentences = split_sentences(text)
+    assert len(sentences) == 3
+    assert "U.S. war" in sentences[0]
+    assert "e.g. Brent" in sentences[1]
+
+
+def test_bullet_list_items_are_grouped_and_scored():
+    bullets = "\n\n".join(
+        [
+            "The energy channel, operating through crude oil and gas price escalation in futures markets.",
+            "The logistics channel, reflecting elevated insurance premiums and rerouting of maritime traffic.",
+            "The financial channel, encompassing sanctions fragmentation and repricing of sovereign risk.",
+        ]
+    )
+    analysis = analyze_document(bullets)
+    scored = [p for p in analysis.paragraphs if p.classification != "not scored"]
+    assert scored, "consecutive short bullet items should be grouped into a scoreable block"
+    assert analysis.scored_words > 0
+
+
+def test_bibliography_excluded_from_ai_analysis():
+    body = LLM_FLAVORED_ACADEMIC
+    refs = (
+        "References\n\n"
+        "Caldara, D. and Iacoviello, M. (2022). Measuring geopolitical risk. AER, 112(4).\n"
+        "Kilian, L. (2009). Not all oil price shocks are alike. AER, 99(3)."
+    )
+    analysis = analyze_document(body + "\n\n" + refs)
+    assert analysis.bibliography_words > 0
+    assert all("Caldara" not in p.text for p in analysis.paragraphs)

@@ -234,6 +234,11 @@ def _ai_breakdown_html(ai: DocumentAnalysis) -> str:
             f'<p class="ai-note">{ai.unscored_words} word(s) in headings and short blocks were '
             "too short to score and are not counted in the percentages.</p>"
         )
+    if ai.bibliography_words:
+        unscored_note += (
+            f'<p class="ai-note">The references/bibliography section ({ai.bibliography_words} word(s)) '
+            "is excluded from the AI analysis &mdash; citation lists are not prose.</p>"
+        )
     return f"""
 <div class="ai-stats">
 <span class="stat" style="color:{AI_CLASS_COLORS['ai-like'][0]}">AI-like: {ai_pct}%</span>
