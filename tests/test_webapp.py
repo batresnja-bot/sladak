@@ -4,7 +4,7 @@ import pytest
 
 flask = pytest.importorskip("flask")
 
-from turnitin_diy.webapp import create_app
+from sladak.webapp import create_app
 
 
 @pytest.fixture

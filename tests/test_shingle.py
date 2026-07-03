@@ -1,4 +1,4 @@
-from turnitin_diy.shingle import shingle_hashes, tokenize, winnow
+from sladak.shingle import shingle_hashes, tokenize, winnow
 
 
 def test_tokenize_lowercases_and_strips_punctuation():

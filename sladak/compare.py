@@ -2,11 +2,13 @@
 
 Mirrors the shape of a Turnitin Similarity Report: an overall overlap
 percentage plus a list of matched passages, each attributed to the source it
-overlaps with.
+overlaps with. Like Turnitin, nearby matches from the same source are
+"bridged" into one block, so a copied passage with a few words edited in the
+middle still reads (and scores) as a single continuous match.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .filters import excluded_char_ranges, excluded_word_indices
 from .shingle import Shingle, shingle_hashes, tokenize, tokenize_with_spans, winnow
@@ -27,6 +29,20 @@ class Match:
     source_end: int
 
 
+@dataclass
+class ComparisonResult:
+    """Everything a report needs: the original text, its tokenization (with
+    char offsets so matches can be highlighted in the *original* text,
+    punctuation and all, the way Turnitin renders a submission), the merged
+    matches, and the overall overlap fraction."""
+
+    text: str
+    words: list[str]
+    word_spans: list[tuple[int, int]]
+    matches: list[Match] = field(default_factory=list)
+    overlap: float = 0.0
+
+
 def build_source(source_id: str, text: str, k: int = 8, window: int = 4) -> Source:
     words = tokenize(text)
     shingles = winnow(shingle_hashes(words, k), window)
@@ -42,10 +58,16 @@ def find_matches(
     k: int = 8,
     window: int = 4,
     min_run: int = 8,
+    bridge_gap: int = 6,
     exclude_quotes: bool = False,
     exclude_bibliography: bool = False,
-) -> tuple[list[str], list[Match], float]:
-    """Returns (target_words, merged_matches, overlap_fraction).
+) -> ComparisonResult:
+    """Fingerprint the target and collect matched passages per source.
+
+    bridge_gap mirrors how Turnitin joins near-adjacent matches: two matches
+    from the same source separated by at most `bridge_gap` unmatched words
+    (a small in-place edit) merge into one block, and the bridged words count
+    as part of the match. Set bridge_gap=0 for strict adjacency only.
 
     With exclude_quotes/exclude_bibliography set (mirroring Turnitin's score
     filters), words inside quotation marks or after a references heading
@@ -71,7 +93,7 @@ def find_matches(
 
     merged: list[Match] = []
     for ts, te, sid, ss, se in raw:
-        if merged and merged[-1].source_id == sid and ts <= merged[-1].target_end:
+        if merged and merged[-1].source_id == sid and ts <= merged[-1].target_end + bridge_gap:
             last = merged[-1]
             last.target_end = max(last.target_end, te)
             last.source_end = max(last.source_end, se)
@@ -93,7 +115,9 @@ def find_matches(
     overlap = sum(matched_flags) / total
 
     merged.sort(key=lambda m: m.target_start)
-    return words, merged, overlap
+    return ComparisonResult(
+        text=target_text, words=words, word_spans=word_spans, matches=merged, overlap=overlap
+    )
 
 
 def summarize_by_source(n_words: int, matches: list[Match]) -> list[tuple[str, float]]:

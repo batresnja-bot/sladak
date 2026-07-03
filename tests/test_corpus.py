@@ -1,5 +1,5 @@
-from turnitin_diy.compare import find_matches
-from turnitin_diy.corpus import Corpus
+from sladak.compare import find_matches
+from sladak.corpus import Corpus
 
 COPIED = (
     "Climate policy requires balancing near term economic costs against "
@@ -33,8 +33,8 @@ def test_check_against_corpus_finds_stored_overlap(tmp_path):
         corpus.add("old_draft.txt", COPIED + " plus unique filler padding words here")
         sources = corpus.build_sources()
 
-    _, matches, overlap = find_matches("Intro. " + COPIED + " Outro.", sources, min_run=6)
-    assert matches
-    assert matches[0].source_id.startswith("corpus #")
-    assert "old_draft.txt" in matches[0].source_id
-    assert overlap > 0
+    result = find_matches("Intro. " + COPIED + " Outro.", sources, min_run=6)
+    assert result.matches
+    assert result.matches[0].source_id.startswith("corpus #")
+    assert "old_draft.txt" in result.matches[0].source_id
+    assert result.overlap > 0
