@@ -1,6 +1,6 @@
 [project]
 name = "sladak"
-version = "0.3.0"
+version = "0.4.0"
 description = "A local, open-source text-similarity checker using the same fingerprinting technique Turnitin is built on."
 requires-python = ">=3.9"
 dependencies = [

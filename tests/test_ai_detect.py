@@ -12,6 +12,14 @@ VARIED_PROSE = (
     "We stopped asking after a while."
 )
 
+LLM_FLAVORED_ACADEMIC = (
+    "Moreover, the conflict underscores the multifaceted nature of geopolitical risk in the region. "
+    "Furthermore, it is important to note that supply chains play a crucial role in transmission. "
+    "Additionally, the resulting uncertainty highlights the importance of a comprehensive framework. "
+    "Consequently, policymakers must navigate the rapidly evolving landscape of energy markets. "
+    "In conclusion, these dynamics have significant implications for the global economy."
+)
+
 
 def test_stock_phrase_heavy_paragraph_scores_higher_than_varied_prose():
     heavy = score_paragraph(STOCK_PHRASE_HEAVY)
@@ -20,18 +28,35 @@ def test_stock_phrase_heavy_paragraph_scores_higher_than_varied_prose():
     assert heavy.components["stock_phrase_density"] > 0
 
 
-def test_short_paragraph_is_marked_insufficient_text():
+def test_llm_flavored_academic_prose_lands_in_ai_band():
+    result = score_paragraph(LLM_FLAVORED_ACADEMIC)
+    assert result.classification == "ai-like"
+    assert result.score >= 0.65
+
+
+def test_varied_personal_prose_lands_in_human_band():
+    result = score_paragraph(VARIED_PROSE)
+    assert result.classification == "human-like"
+    assert result.score < 0.40
+
+
+def test_short_paragraph_is_not_scored():
     result = score_paragraph("Too short.")
-    assert result.confidence == "insufficient text"
+    assert result.classification == "not scored"
 
 
-def test_analyze_document_overall_score_is_bounded_and_paragraph_count_matches():
-    analysis = analyze_document(STOCK_PHRASE_HEAVY + "\n\n" + VARIED_PROSE)
+def test_analyze_document_fractions_sum_to_one_over_scored_words():
+    analysis = analyze_document(LLM_FLAVORED_ACADEMIC + "\n\n" + VARIED_PROSE + "\n\nAbstract")
+    assert len(analysis.paragraphs) == 3
+    assert analysis.unscored_words > 0  # the "Abstract" heading
+    assert abs(analysis.ai_fraction + analysis.mixed_fraction + analysis.human_fraction - 1.0) < 1e-9
+    assert analysis.ai_fraction > 0
+    assert analysis.human_fraction > 0
     assert 0.0 <= analysis.overall_score <= 1.0
-    assert len(analysis.paragraphs) == 2
 
 
 def test_empty_text_returns_no_paragraphs():
     analysis = analyze_document("")
     assert analysis.paragraphs == []
     assert analysis.overall_score == 0.0
+    assert analysis.scored_words == 0

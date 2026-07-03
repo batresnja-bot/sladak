@@ -100,22 +100,32 @@ This module is **not** an attempt to reproduce that classifier, and it is
 **not** designed to help disguise AI-written text — its output tells you
 what a naive pattern-matcher would flag, so you can go look at that passage
 yourself, not so you can rewrite around the specific signals it checks.
-It scores each paragraph (0–1) on three fully disclosed, publicly documented
-heuristics, weighted and summed:
+
+The report headline is Turnitin-shaped: **AI-like: X% · Mixed: Y% ·
+Human-like: Z%** — the share of the document's words whose paragraph falls
+in each class, with a stacked color bar. Headings and blocks under 3
+sentences are excluded ("not scored") instead of being counted as human.
+
+Each paragraph is scored on fully disclosed, publicly documented heuristics,
+weighted, summed, and passed through a logistic calibration:
 
 | Signal | Weight | What it measures |
 |---|---|---|
-| Low sentence-length variation | 0.45 | Coefficient of variation of sentence lengths — unedited LLM output tends toward more uniform sentence length than human "bursty" writing. |
-| Stock transition-phrase density | 0.35 | Frequency (per 1000 words) of phrases LLMs over-use: "moreover," "it is important to note," "delve into," "multifaceted," etc. |
-| Sentence-opener repetition | 0.20 | How often consecutive sentences in a paragraph start with the same two words. |
+| Low sentence-length variation | 0.20 | Coefficient of variation of sentence lengths — unedited LLM output tends toward more uniform sentence length than human "bursty" writing. |
+| Stock word/phrase density | 0.25 | Frequency (per 1000 words) of words and phrases LLMs statistically over-use: "moreover," "it is important to note," "delve into," "multifaceted," "landscape of," etc. |
+| Connector-opened sentences | 0.20 | Fraction of sentences opening with a transition connector ("However," "Furthermore," "Additionally," …) — the signpost-every-sentence pattern. |
+| Nominalization density | 0.15 | Abstract-noun density ("disruption," "fragmentation," "implications," …) — LLM formal prose is unusually nominalization-heavy. |
+| Long sentences | 0.10 | Mean sentence length; LLM formal prose runs consistently long. |
+| Em-dash style | 0.05 | Em dashes per 1000 words — one of the most widely reported tells of unedited LLM prose. |
+| Sentence-opener repetition | 0.05 | How often sentences in a paragraph start with the same two words. |
 
-Each paragraph gets a score and a confidence label (`low` / `moderate` /
-`elevated` / `high`, or `insufficient text` under 3 sentences). The document
-score is the paragraph scores weighted by paragraph length. Every report
-renders a **Limitations & false-positive warnings** section explaining that
-these signals also occur naturally in formal human writing — most notably
-from non-native English writers — and that the score is a prompt to reread a
-passage, never a verdict.
+Calibrated scores map to classes: **AI-like** (≥ 0.65), **mixed / unclear**
+(0.40–0.65), **human-like** (< 0.40). Careful formal *human* academic writing
+lands in the mixed band by design — that overlap is real, and pretending
+otherwise is how false accusations happen. Every report renders a
+**Limitations & false-positive warnings** section explaining this, and the
+percentages here will not match Turnitin's percentage in either direction —
+theirs is a trained model scoring different features.
 
 ## Install
 
