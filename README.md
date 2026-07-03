@@ -118,6 +118,19 @@ weighted, summed, and passed through a logistic calibration:
 | Long sentences | 0.10 | Mean sentence length; LLM formal prose runs consistently long. |
 | Em-dash style | 0.05 | Em dashes per 1000 words — one of the most widely reported tells of unedited LLM prose. |
 | Sentence-opener repetition | 0.05 | How often sentences in a paragraph start with the same two words. |
+| Paragraph-size uniformity | 0.08 (doc-level) | LLM documents tend to have eerily uniform paragraph sizes; human documents mix short and long. |
+
+Three segmentation details matter as much as the signals:
+
+- **Sentence splitting is abbreviation-aware** ("U.S.", "e.g.", "et al.",
+  "Fig.") — a naive splitter shreds formal prose into fake short sentences,
+  which makes LLM text read as bursty/human and silently breaks every
+  length-based statistic.
+- **Consecutive short blocks are grouped** (bullet-list items, hard-wrapped
+  lines) and scored together instead of being discarded; headings stay
+  separate and are never glued onto body text.
+- **The references/bibliography section is excluded** from the AI analysis
+  entirely — citation lists are not prose and shouldn't count either way.
 
 Calibrated scores map to classes: **AI-like** (≥ 0.65), **mixed / unclear**
 (0.40–0.65), **human-like** (< 0.40). Careful formal *human* academic writing

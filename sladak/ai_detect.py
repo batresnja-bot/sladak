@@ -14,13 +14,21 @@ and imperfectly -- with unedited LLM output:
 - nominalization-dense formality ("disruption", "fragmentation",
   "implications", ...) and consistently long sentences,
 - em-dash-heavy punctuation style,
-- repeated sentence openers within a paragraph.
+- repeated sentence openers within a paragraph,
+- suspiciously uniform paragraph sizes across the document.
 
-Each paragraph's weighted signal sum is passed through a logistic curve and
+Sentence splitting is abbreviation-aware ("U.S.", "e.g.", "et al.", "Fig.")
+so real academic prose isn't shredded into fake short sentences, which
+would otherwise make LLM text read as bursty/human. Consecutive short
+blocks (bullet lists, broken-up lines) are grouped and scored together
+instead of being discarded, headings are excluded rather than counted as
+human, and the references/bibliography section is left out of the AI
+analysis entirely.
+
+Each block's weighted signal sum is passed through a logistic curve and
 classified Turnitin-report-style as AI-like / mixed / human-like, and the
 document header reports what share of the document's words falls in each
-class. Headings and very short blocks are excluded ("not scored") rather
-than counted as human.
+class.
 
 Every one of these signals also occurs naturally in careful, formal human
 writing -- especially from non-native English writers, or writers who were
@@ -35,8 +43,18 @@ import re
 import statistics
 from dataclasses import dataclass
 
+from .filters import bibliography_range
+
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
+
+# A fragment ending in one of these is an abbreviation, not a sentence end.
+ABBREV_END_RE = re.compile(
+    r"(?:\b(?:e\.g|i\.e|etc|vs|cf|ca|al|Fig|Figs|Eq|Eqs|No|Nos|pp|Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Inc|Ltd|approx)\."
+    r"|\b[A-Z]\."          # single initial: "J."
+    r"|\b(?:[A-Z]\.){2,}"  # "U.S.", "U.K.", "U.S.A."
+    r")$"
+)
 
 # Words/phrases widely reported (in stylometry research and large-scale corpus
 # comparisons of pre/post-LLM text alike) as disproportionately common in
@@ -49,24 +67,26 @@ STOCK_PHRASES = [
     "importantly,", "crucially,", "in turn,", "taken together",
     # hedges / signposts
     "it is important to note", "it is worth noting", "it is essential to",
-    "it is crucial to", "this highlights", "this underscores", "underscoring",
-    "highlights the importance", "highlights the need", "underscores the need",
-    "the fact that", "on the other hand",
+    "it is crucial to", "it is worth emphasizing", "this highlights",
+    "this underscores", "underscores the", "underscoring",
+    "highlights the importance", "highlights the need", "highlights the",
+    "cannot be overstated", "the fact that", "on the other hand",
     # LLM-flavored vocabulary
     "delve into", "delves into", "navigate the", "navigating the",
     "landscape of", "tapestry", "multifaceted", "a testament to",
-    "in the realm of", "plays a crucial role", "plays a vital role",
-    "plays a pivotal role", "pivotal role", "serves as a", "stands as a",
-    "remains a cornerstone", "paving the way", "poised to",
-    "transformative", "unprecedented", "holistic", "nuanced understanding",
-    "comprehensive framework", "comprehensive overview", "comprehensive analysis",
-    "significant implications", "far-reaching implications",
-    "rapidly evolving", "ever-evolving", "in today's world",
-    "garnered significant", "marked a significant", "boasts",
+    "in the realm of", "plays a crucial role", "play a crucial role",
+    "plays a vital role", "plays a central role", "pivotal role",
+    "serves as a", "stands as a", "remains a cornerstone", "paving the way",
+    "poised to", "transformative", "unprecedented", "holistic",
+    "nuanced understanding", "comprehensive framework", "comprehensive overview",
+    "comprehensive analysis", "significant implications",
+    "far-reaching implications", "rapidly evolving", "ever-evolving",
+    "in today's world", "garnered significant", "marked a significant", "boasts",
     # analysis-paper connectors
     "with respect to", "in the context of", "through the lens of",
-    "a wide range of", "a variety of factors", "key drivers",
-    "shed light on", "sheds light on", "shedding light on",
+    "against the backdrop of", "a wide range of", "a wide array of",
+    "a variety of factors", "key drivers", "shed light on", "sheds light on",
+    "shedding light on",
 ]
 
 # Sentence-initial transition connectors. Unedited LLM prose opens an
@@ -101,6 +121,9 @@ WEIGHTS = {
     "opener_repetition": 0.05,
 }
 
+# Document-level bonus: how uniform the scored paragraphs' sizes are.
+PARAGRAPH_UNIFORMITY_WEIGHT = 0.08
+
 # Logistic calibration: raw weighted sums cluster in 0.1-0.7, so squash them
 # onto the full 0-1 range. Midpoint 0.30 = the gray zone where careful formal
 # human writing and LLM output genuinely overlap.
@@ -110,21 +133,69 @@ CALIBRATION_STEEPNESS = 8.0
 AI_THRESHOLD = 0.65
 HUMAN_THRESHOLD = 0.40
 
+MIN_SENTENCES = 3
+MIN_WORDS = 25
+
 NOT_SCORED = "not scored"
 
 
 def split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in SENTENCE_SPLIT_RE.split(text.strip()) if s.strip()]
+    """Sentence split that doesn't break after abbreviations ("U.S.", "e.g.",
+    "et al.", "Fig."), which would otherwise shred formal prose into fake
+    short sentences and wreck every length-based statistic."""
+    fragments = [f.strip() for f in SENTENCE_SPLIT_RE.split(text.strip()) if f.strip()]
+    sentences: list[str] = []
+    for fragment in fragments:
+        if sentences and ABBREV_END_RE.search(sentences[-1]):
+            sentences[-1] = sentences[-1] + " " + fragment
+        else:
+            sentences.append(fragment)
+    return sentences
+
+
+def _looks_like_heading(paragraph: str) -> bool:
+    return len(paragraph.split()) <= 8 and not re.search(r"[.!?]\s*$", paragraph)
 
 
 def split_paragraphs(text: str) -> list[str]:
+    """Blocks for scoring. Real paragraphs stand alone; consecutive short
+    blocks (bullet-list items, hard-wrapped lines, table rows) are grouped
+    into one block so they get scored instead of discarded. Headings stay
+    separate (and end a group) so a title never glues onto body text."""
     paras = [p.strip() for p in PARAGRAPH_SPLIT_RE.split(text) if p.strip()]
     if len(paras) <= 1:
         # No blank-line paragraph breaks (common after PDF extraction) --
         # fall back to grouping every few sentences into a pseudo-paragraph.
         sentences = split_sentences(text)
         paras = [" ".join(sentences[i : i + 4]) for i in range(0, len(sentences), 4)]
-    return [p for p in paras if p.strip()]
+
+    blocks: list[str] = []
+    buffer: list[str] = []
+    buffered_sentences = 0
+
+    def flush() -> None:
+        nonlocal buffered_sentences
+        if buffer:
+            blocks.append("\n".join(buffer))
+            buffer.clear()
+            buffered_sentences = 0
+
+    for p in paras:
+        if _looks_like_heading(p):
+            flush()
+            blocks.append(p)
+            continue
+        n_sentences = len(split_sentences(p))
+        if n_sentences >= MIN_SENTENCES:
+            flush()
+            blocks.append(p)
+        else:
+            buffer.append(p)
+            buffered_sentences += n_sentences
+            if buffered_sentences >= MIN_SENTENCES:
+                flush()
+    flush()
+    return [b for b in blocks if b.strip()]
 
 
 @dataclass
@@ -145,6 +216,7 @@ class DocumentAnalysis:
     human_fraction: float
     scored_words: int
     unscored_words: int
+    bibliography_words: int = 0  # excluded from the AI analysis entirely
 
 
 def _low_sentence_variation_signal(sentences: list[str]) -> float:
@@ -152,7 +224,7 @@ def _low_sentence_variation_signal(sentences: list[str]) -> float:
     Human prose usually has a coefficient of variation above ~0.5; unedited
     LLM output often sits below ~0.35."""
     lengths = [len(s.split()) for s in sentences]
-    if len(lengths) < 3:
+    if len(lengths) < MIN_SENTENCES:
         return 0.0
     mean = statistics.mean(lengths)
     if mean == 0:
@@ -172,7 +244,7 @@ def _stock_phrase_density_signal(text: str) -> float:
 def _connector_openers_signal(sentences: list[str]) -> float:
     """Fraction of sentences that open with a transition connector; ~10% is
     unremarkable, ~45%+ is the LLM signpost-every-sentence pattern."""
-    if len(sentences) < 3:
+    if len(sentences) < MIN_SENTENCES:
         return 0.0
     hits = 0
     for s in sentences:
@@ -195,7 +267,7 @@ def _nominalization_density_signal(text: str) -> float:
 
 def _long_sentences_signal(sentences: list[str]) -> float:
     """Mean sentence length in words; LLM formal prose runs long (25-45)."""
-    if len(sentences) < 3:
+    if len(sentences) < MIN_SENTENCES:
         return 0.0
     mean_len = statistics.mean(len(s.split()) for s in sentences)
     return max(0.0, min(1.0, (mean_len - 15) / 15))
@@ -210,20 +282,34 @@ def _em_dash_style_signal(text: str) -> float:
 
 
 def _opener_repetition_signal(sentences: list[str]) -> float:
-    if len(sentences) < 3:
+    if len(sentences) < MIN_SENTENCES:
         return 0.0
     openers = [" ".join(s.split()[:2]).lower() for s in sentences]
     repeats = len(openers) - len(set(openers))
     return max(0.0, min(1.0, repeats / len(openers)))
 
 
+def _paragraph_uniformity_signal(word_counts: list[int]) -> float:
+    """Document-level: LLM-generated documents tend to have eerily uniform
+    paragraph sizes; human documents mix short and long paragraphs."""
+    if len(word_counts) < 4:
+        return 0.0
+    mean = statistics.mean(word_counts)
+    if mean == 0:
+        return 0.0
+    cv = statistics.pstdev(word_counts) / mean
+    return max(0.0, min(1.0, (0.50 - cv) / 0.35))
+
+
 def _calibrate(raw: float) -> float:
     return 1.0 / (1.0 + math.exp(-(raw - CALIBRATION_MIDPOINT) * CALIBRATION_STEEPNESS))
 
 
-def _classify(score: float, n_sentences: int) -> str:
-    if n_sentences < 3:
-        return NOT_SCORED
+def _scoreable(text: str, n_sentences: int) -> bool:
+    return n_sentences >= MIN_SENTENCES and len(text.split()) >= MIN_WORDS
+
+
+def _classify(score: float) -> str:
     if score >= AI_THRESHOLD:
         return "ai-like"
     if score >= HUMAN_THRESHOLD:
@@ -231,7 +317,7 @@ def _classify(score: float, n_sentences: int) -> str:
     return "human-like"
 
 
-def score_paragraph(text: str) -> ParagraphScore:
+def _raw_components(text: str) -> tuple[dict[str, float], float, int]:
     sentences = split_sentences(text)
     components = {
         "low_sentence_variation": _low_sentence_variation_signal(sentences),
@@ -243,35 +329,63 @@ def score_paragraph(text: str) -> ParagraphScore:
         "opener_repetition": _opener_repetition_signal(sentences),
     }
     raw = sum(components[name] * weight for name, weight in WEIGHTS.items())
-    score = _calibrate(raw) if len(sentences) >= 3 else 0.0
-    classification = _classify(score, len(sentences))
-    return ParagraphScore(text=text, score=score, components=components, classification=classification)
+    return components, raw, len(sentences)
+
+
+def score_paragraph(text: str) -> ParagraphScore:
+    components, raw, n_sentences = _raw_components(text)
+    if not _scoreable(text, n_sentences):
+        return ParagraphScore(text=text, score=0.0, components=components, classification=NOT_SCORED)
+    score = _calibrate(raw)
+    return ParagraphScore(text=text, score=score, components=components, classification=_classify(score))
 
 
 def analyze_document(text: str) -> DocumentAnalysis:
-    paragraphs = [score_paragraph(p) for p in split_paragraphs(text)]
+    # The references/bibliography section is citation lists, not prose --
+    # exclude it from the AI analysis rather than let it skew either way.
+    bibliography_words = 0
+    bib = bibliography_range(text)
+    if bib is not None:
+        bibliography_words = len(text[bib[0]:].split())
+        text = text[: bib[0]]
+
+    scored_items: list[tuple[int, dict[str, float], float, str]] = []  # (index, components, raw, text)
+    paragraphs: list[ParagraphScore] = []
+    for block in split_paragraphs(text):
+        components, raw, n_sentences = _raw_components(block)
+        if _scoreable(block, n_sentences):
+            scored_items.append((len(paragraphs), components, raw, block))
+            paragraphs.append(ParagraphScore(block, 0.0, components, "pending"))
+        else:
+            paragraphs.append(ParagraphScore(block, 0.0, components, NOT_SCORED))
+
     if not paragraphs:
         return DocumentAnalysis(
             paragraphs=[], overall_score=0.0,
             ai_fraction=0.0, mixed_fraction=0.0, human_fraction=0.0,
-            scored_words=0, unscored_words=0,
+            scored_words=0, unscored_words=0, bibliography_words=bibliography_words,
         )
 
-    class_words = {"ai-like": 0, "mixed": 0, "human-like": 0, NOT_SCORED: 0}
-    weighted_score_sum = 0.0
-    for p in paragraphs:
-        n_words = max(len(p.text.split()), 1)
-        class_words[p.classification] += n_words
-        if p.classification != NOT_SCORED:
-            weighted_score_sum += p.score * n_words
+    uniformity = _paragraph_uniformity_signal([len(t.split()) for _, _, _, t in scored_items])
 
-    scored_words = class_words["ai-like"] + class_words["mixed"] + class_words["human-like"]
-    unscored_words = class_words[NOT_SCORED]
+    class_words = {"ai-like": 0, "mixed": 0, "human-like": 0}
+    weighted_score_sum = 0.0
+    for index, components, raw, block_text in scored_items:
+        components["paragraph_uniformity"] = uniformity
+        score = _calibrate(raw + PARAGRAPH_UNIFORMITY_WEIGHT * uniformity)
+        classification = _classify(score)
+        paragraphs[index] = ParagraphScore(block_text, score, components, classification)
+        n_words = len(block_text.split())
+        class_words[classification] += n_words
+        weighted_score_sum += score * n_words
+
+    scored_words = sum(class_words.values())
+    unscored_words = sum(len(p.text.split()) for p in paragraphs if p.classification == NOT_SCORED)
     if scored_words == 0:
         return DocumentAnalysis(
             paragraphs=paragraphs, overall_score=0.0,
             ai_fraction=0.0, mixed_fraction=0.0, human_fraction=0.0,
-            scored_words=0, unscored_words=unscored_words,
+            scored_words=0, unscored_words=unscored_words, bibliography_words=bibliography_words,
         )
 
     return DocumentAnalysis(
@@ -282,4 +396,5 @@ def analyze_document(text: str) -> DocumentAnalysis:
         human_fraction=class_words["human-like"] / scored_words,
         scored_words=scored_words,
         unscored_words=unscored_words,
+        bibliography_words=bibliography_words,
     )
