@@ -23,19 +23,22 @@ AI_LIMITATIONS_HTML = """
 <div class="limitations">
 <h2>Limitations &amp; false-positive warnings</h2>
 <ul>
-<li>This score comes from a small set of <strong>publicly documented writing-style
-statistics</strong> (sentence-length uniformity, stock transition phrases, repeated
-sentence openers) &mdash; it is not a machine-learned classifier and does not see
-what Turnitin's proprietary AI-writing model sees.</li>
-<li>Every signal it uses also occurs naturally in careful, formal human writing.
-Non-native English writers, writers taught to use "signpost" transitions, and
-heavily copy-edited text are all more likely to score higher <em>without</em>
-having used an AI tool.</li>
-<li>A high score means "this passage's writing statistics resemble unedited LLM
-output," not "this passage was written by AI." Treat it as a prompt to reread that
-passage yourself, never as a verdict.</li>
-<li>Short paragraphs (fewer than 3 sentences) are marked <code>insufficient text</code>
-because these statistics are unreliable at that length.</li>
+<li>These percentages come from a small set of <strong>publicly documented
+writing-style statistics</strong> (sentence-length uniformity, stock phrases,
+connector-opened sentences, em-dash density, repeated openers) &mdash; not a
+machine-learned classifier. They will not match the percentage from Turnitin's
+proprietary AI model, in either direction.</li>
+<li>"AI-like" means "this paragraph's writing statistics resemble unedited LLM
+output," not "this paragraph was written by AI." Every signal used here also
+occurs naturally in careful, formal human writing. Non-native English writers,
+writers taught to use "signpost" transitions, and heavily copy-edited text are
+all more likely to land in the AI-like band <em>without</em> having used an AI
+tool.</li>
+<li>Treat the breakdown as a prompt to reread the flagged passages yourself,
+never as a verdict.</li>
+<li>Paragraphs with fewer than 3 sentences (headings, names, dates) are marked
+<code>not scored</code> because these statistics are meaningless at that length;
+they are excluded from the percentages.</li>
 <li>Do not use this score, or any AI-detection score, as the sole basis for an
 academic-integrity accusation.</li>
 </ul>
@@ -148,6 +151,10 @@ mark .srcnum { font-size: 0.65rem; font-weight: 700; margin-right: 2px; }
 .limitations { background: #f7f7f7; border-radius: 8px; padding: 1.25rem 1.5rem; margin-top: 2.5rem; }
 .limitations h2 { margin-top: 0; border: none; }
 .filters { font-size: 0.85rem; color: #666; }
+.ai-stats { display: flex; flex-wrap: wrap; gap: 1.5rem; font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem; }
+.stackbar { display: flex; height: 18px; border-radius: 9px; overflow: hidden; background: #eee; margin: 0.5rem 0; }
+.stackbar span { display: block; height: 100%; }
+.ai-note { font-size: 0.85rem; color: #666; margin: 0.4rem 0; }
 """
 
 
@@ -169,30 +176,74 @@ def render_report(title: str, result: ComparisonResult, out_path: Path) -> None:
     out_path.write_text(doc, encoding="utf-8")
 
 
-def _confidence_color(confidence: str) -> str:
-    return {
-        "insufficient text": "#eee",
-        "low": "#e8f6ef",
-        "moderate": "#fff3cd",
-        "elevated": "#ffe0b3",
-        "high": "#ffd1d1",
-    }.get(confidence, "#eee")
+AI_CLASS_COLORS = {
+    "ai-like": ("#e53935", "#ffd1d1"),
+    "mixed": ("#f9a825", "#fff3cd"),
+    "human-like": ("#43a047", "#e8f6ef"),
+    "not scored": ("#9e9e9e", "#eee"),
+}
+
+AI_CLASS_LABELS = {
+    "ai-like": "AI-like",
+    "mixed": "Mixed / unclear",
+    "human-like": "Human-like",
+    "not scored": "Not scored (too short)",
+}
 
 
 def _render_ai_paragraphs(paragraphs: list[ParagraphScore]) -> str:
     blocks = []
     for p in paragraphs:
-        color = _confidence_color(p.confidence)
+        strong, background = AI_CLASS_COLORS.get(p.classification, ("#9e9e9e", "#eee"))
+        label = AI_CLASS_LABELS.get(p.classification, p.classification)
         component_str = ", ".join(f"{k}: {v:.2f}" for k, v in p.components.items())
         blocks.append(
-            f'<div class="paragraph" style="background:{color}">'
-            f'<div class="paragraph-meta">score {p.score:.2f} &middot; '
-            f'confidence: <strong>{html.escape(p.confidence)}</strong> '
+            f'<div class="paragraph" style="background:{background}">'
+            f'<div class="paragraph-meta"><strong style="color:{strong}">{html.escape(label)}</strong>'
+            f" &middot; score {p.score:.2f} "
             f'<span class="components">({html.escape(component_str)})</span></div>'
             f'<div class="paragraph-text">{html.escape(p.text)}</div>'
             f"</div>"
         )
     return "\n".join(blocks)
+
+
+def _ai_breakdown_html(ai: DocumentAnalysis) -> str:
+    """The Turnitin-style headline: AI-like X% / Mixed Y% / Human-like Z% of
+    the document's scoreable words, plus a stacked bar."""
+    if ai.scored_words == 0:
+        return (
+            '<p class="ai-note">Not enough text to analyze &mdash; no paragraph has 3 or more '
+            "sentences, which these statistics need to mean anything.</p>"
+        )
+    ai_pct = round(ai.ai_fraction * 100)
+    mixed_pct = round(ai.mixed_fraction * 100)
+    human_pct = 100 - ai_pct - mixed_pct
+    segments = "".join(
+        f'<span style="width:{pct}%;background:{color}"></span>'
+        for pct, color in (
+            (ai_pct, AI_CLASS_COLORS["ai-like"][0]),
+            (mixed_pct, AI_CLASS_COLORS["mixed"][0]),
+            (human_pct, AI_CLASS_COLORS["human-like"][0]),
+        )
+        if pct > 0
+    )
+    unscored_note = ""
+    if ai.unscored_words:
+        unscored_note = (
+            f'<p class="ai-note">{ai.unscored_words} word(s) in headings and short blocks were '
+            "too short to score and are not counted in the percentages.</p>"
+        )
+    return f"""
+<div class="ai-stats">
+<span class="stat" style="color:{AI_CLASS_COLORS['ai-like'][0]}">AI-like: {ai_pct}%</span>
+<span class="stat" style="color:{AI_CLASS_COLORS['mixed'][0]}">Mixed: {mixed_pct}%</span>
+<span class="stat" style="color:{AI_CLASS_COLORS['human-like'][0]}">Human-like: {human_pct}%</span>
+</div>
+<div class="stackbar">{segments}</div>
+<p class="ai-note">Share of the document's words whose paragraph writing statistics fall in each
+class &mdash; a prompt to reread those passages, not a verdict (see limitations below).</p>
+{unscored_note}"""
 
 
 def combined_report_html(
@@ -206,9 +257,7 @@ def combined_report_html(
 
     ai_section = f"""
 <h2>Writing-pattern (AI-likelihood) analysis</h2>
-<div class="score"><span class="chip" style="background:#455a64">{ai_analysis.overall_score * 100:.0f}</span>
-<small>/100 overall writing-pattern score
-(higher = more consistent with unedited LLM output &mdash; see limitations below)</small></div>
+{_ai_breakdown_html(ai_analysis)}
 <div class="paragraphs">{_render_ai_paragraphs(ai_analysis.paragraphs)}</div>
 """
 
